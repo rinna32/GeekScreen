@@ -59,7 +59,13 @@ function Read-ScreenshotFolder {
             try {
                 @{ folder = $selected } | ConvertTo-Json | Set-Content -LiteralPath $temp -Encoding UTF8
                 if ([IO.File]::Exists($configPath)) {
-                    [IO.File]::Replace($temp, $configPath, $null)
+                    try {
+                        [IO.File]::Replace($temp, $configPath, [System.Management.Automation.Language.NullString]::Value)
+                    }
+                    catch {
+                        [IO.File]::Delete($configPath)
+                        [IO.File]::Move($temp, $configPath)
+                    }
                 }
                 else { [IO.File]::Move($temp, $configPath) }
             }
@@ -113,7 +119,7 @@ function Show-Menu([string]$Folder) {
     while ($true) {
         Write-Host ''
         Write-Host '=========================================='
-        Write-Host ' GeekScreen - скриншоты в играх по F12'
+        Write-Host ' GeekScreen - скриншоты в играх по ~'
         Write-Host '=========================================='
         if ($Folder) { Write-Host " Папка: $Folder" }
         else { Write-Host ' Папка для скриншотов не выбрана.' }
@@ -174,12 +180,12 @@ function Start-GeekScreen([string]$Folder) {
         }
 
         Write-Host ''
-        Write-Host "Готово. F12 - скриншот, Ctrl+F12 - сменить папку, Ctrl+C - остановить."
+        Write-Host "Готово. ~ - скриншот, Ctrl+~ - сменить папку, Ctrl+C - остановить."
         Write-Host "Папка: $Folder"
 
         $wasPressed = $true
         while ($true) {
-            $pressed = ([GeekScreenNative]::GetAsyncKeyState(0x7B) -band 0x8000) -ne 0
+            $pressed = ([GeekScreenNative]::GetAsyncKeyState(0xC0) -band 0x8000) -ne 0
             if ($pressed -and -not $wasPressed) {
                 $ctrl = ([GeekScreenNative]::GetAsyncKeyState(0x11) -band 0x8000) -ne 0
                 if ($ctrl) {
@@ -200,7 +206,7 @@ function Start-GeekScreen([string]$Folder) {
                             $selected = Read-ScreenshotFolder
                             if ($selected) {
                                 $Folder = $selected
-                                Write-Host "Папка: $Folder. Нажмите F12 для нового скриншота."
+                                Write-Host "Папка: $Folder. Нажмите ~ для нового скриншота."
                             }
                         }
                     }
