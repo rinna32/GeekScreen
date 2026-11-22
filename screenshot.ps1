@@ -1,5 +1,6 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 $ErrorActionPreference = 'Stop'
+
 $configDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'GeekScreen'
 $configPath = Join-Path $configDir 'config.json'
 $captureExe = Join-Path $PSScriptRoot 'capture.exe'
@@ -22,26 +23,42 @@ function Test-WritableFolder([string]$Path) {
     catch { return $false }
 }
 
-function Select-ScreenshotFolder {
+function Confirm-Folder([string]$Path) {
+    $answer = [Windows.Forms.MessageBox]::Show(
+        "Сохранять скриншоты в эту папку?`n`n$Path`n`n«Да» — подтвердить, «Нет» — выбрать другую.",
+        'GeekScreen',
+        [Windows.Forms.MessageBoxButtons]::YesNo,
+        [Windows.Forms.MessageBoxIcon]::Question)
+    return $answer -eq [Windows.Forms.DialogResult]::Yes
+}
+
+function Read-ScreenshotFolder {
     $dialog = [Windows.Forms.FolderBrowserDialog]::new()
-    $dialog.Description = 'Choose a writable local folder for GeekScreen screenshots.'
+    $dialog.Description = 'Выберите папку для скриншотов GeekScreen.'
     $dialog.ShowNewFolderButton = $true
     try {
         while ($dialog.ShowDialog() -eq [Windows.Forms.DialogResult]::OK) {
             $selected = $dialog.SelectedPath
-            if (Test-WritableFolder $selected) {
-                $temp = Join-Path $configDir ([guid]::NewGuid().ToString('N') + '.tmp')
-                try {
-                    @{ folder = $selected } | ConvertTo-Json | Set-Content -LiteralPath $temp -Encoding UTF8
-                    if ([IO.File]::Exists($configPath)) {
-                        [IO.File]::Replace($temp, $configPath, $null)
-                    }
-                    else { [IO.File]::Move($temp, $configPath) }
-                }
-                finally { [IO.File]::Delete($temp) }
-                return $selected
+            if (-not (Test-WritableFolder $selected)) {
+                [void][Windows.Forms.MessageBox]::Show(
+                    'Выберите локальную папку, в которую можно записывать файлы.',
+                    'GeekScreen',
+                    [Windows.Forms.MessageBoxButtons]::OK,
+                    [Windows.Forms.MessageBoxIcon]::Warning)
+                continue
             }
-            [void][Windows.Forms.MessageBox]::Show('Choose a local folder you can write to.', 'GeekScreen')
+            if (-not (Confirm-Folder $selected)) { continue }
+
+            $temp = Join-Path $configDir ([guid]::NewGuid().ToString('N') + '.tmp')
+            try {
+                @{ folder = $selected } | ConvertTo-Json | Set-Content -LiteralPath $temp -Encoding UTF8
+                if ([IO.File]::Exists($configPath)) {
+                    [IO.File]::Replace($temp, $configPath, $null)
+                }
+                else { [IO.File]::Move($temp, $configPath) }
+            }
+            finally { [IO.File]::Delete($temp) }
+            return $selected
         }
     }
     finally { $dialog.Dispose() }
@@ -85,17 +102,114 @@ function Save-Screenshot([string]$Folder) {
     }
 }
 
-$mutex = $null
-$ownsMutex = $false
-try {
-    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-    $mutex = [Threading.Mutex]::new($false, "Global\GeekScreen-$sid")
-    try { $ownsMutex = $mutex.WaitOne(0) }
-    catch [Threading.AbandonedMutexException] { $ownsMutex = $true }
-    if (-not $ownsMutex) {
-        throw 'GeekScreen is already running for this Windows user.'
+function Show-Menu([string]$Folder) {
+    while ($true) {
+        Write-Host ''
+        Write-Host '=========================================='
+        Write-Host ' GeekScreen - скриншоты в играх по F12'
+        Write-Host '=========================================='
+        if ($Folder) { Write-Host " Папка: $Folder" }
+        else { Write-Host ' Папка для скриншотов не выбрана.' }
+        Write-Host ''
+
+        if ($Folder) {
+            Write-Host ' 1 - Запустить GeekScreen'
+            Write-Host ' 2 - Изменить папку'
+            Write-Host ' 3 - Выход'
+        }
+        else {
+            Write-Host ' 1 - Выбрать папку для сохранения'
+            Write-Host ' 2 - Выход'
+        }
+        Write-Host ''
+
+        $choice = (Read-Host ' Выберите пункт').Trim()
+        if (-not $choice) { $choice = '1' }
+
+        if ($Folder) {
+            switch ($choice) {
+                '1' { return $Folder }
+                '2' {
+                    $selected = Read-ScreenshotFolder
+                    if ($selected) { $Folder = $selected }
+                }
+                '3' { return $null }
+                default { Write-Host ' Введите 1, 2 или 3.' -ForegroundColor Yellow }
+            }
+        }
+        else {
+            switch ($choice) {
+                '1' {
+                    $selected = Read-ScreenshotFolder
+                    if ($selected) { $Folder = $selected }
+                }
+                '2' { return $null }
+                default { Write-Host ' Введите 1 или 2.' -ForegroundColor Yellow }
+            }
+        }
+    }
+}
+
+function Start-GeekScreen([string]$Folder) {
+    if (-not [IO.File]::Exists($captureExe)) {
+        Write-Warning 'capture.exe не найден. Захват полноэкранных игр может не работать.'
     }
 
+    $mutex = $null
+    $ownsMutex = $false
+    try {
+        $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        $mutex = [Threading.Mutex]::new($false, "Global\GeekScreen-$sid")
+        try { $ownsMutex = $mutex.WaitOne(0) }
+        catch [Threading.AbandonedMutexException] { $ownsMutex = $true }
+        if (-not $ownsMutex) {
+            throw 'GeekScreen уже запущен. Закройте его предыдущее окно.'
+        }
+
+        Write-Host ''
+        Write-Host "Готово. F12 - скриншот, Ctrl+F12 - сменить папку, Ctrl+C - остановить."
+        Write-Host "Папка: $Folder"
+
+        $wasPressed = $true
+        while ($true) {
+            $pressed = ([GeekScreenNative]::GetAsyncKeyState(0x7B) -band 0x8000) -ne 0
+            if ($pressed -and -not $wasPressed) {
+                $ctrl = ([GeekScreenNative]::GetAsyncKeyState(0x11) -band 0x8000) -ne 0
+                if ($ctrl) {
+                    $selected = Read-ScreenshotFolder
+                    if ($selected) {
+                        $Folder = $selected
+                        Write-Host "Папка: $Folder"
+                    }
+                }
+                else {
+                    try {
+                        $saved = Save-Screenshot $Folder
+                        Write-Host "Сохранено: $saved"
+                    }
+                    catch {
+                        Write-Warning "Не удалось сделать скриншот: $($_.Exception.Message)"
+                        if (-not (Test-WritableFolder $Folder)) {
+                            $selected = Read-ScreenshotFolder
+                            if ($selected) {
+                                $Folder = $selected
+                                Write-Host "Папка: $Folder. Нажмите F12 для нового скриншота."
+                            }
+                        }
+                    }
+                }
+            }
+            $wasPressed = $pressed
+            Start-Sleep -Milliseconds 15
+        }
+    }
+    finally {
+        if ($ownsMutex) { $mutex.ReleaseMutex() }
+        if ($mutex) { $mutex.Dispose() }
+    }
+}
+
+try {
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
     Add-Type @'
@@ -118,48 +232,23 @@ public static class GeekScreenNative
 
     $folder = $null
     if ([IO.File]::Exists($configPath)) {
-        $rawConfig = Get-Content -LiteralPath $configPath -Raw
-        try { $folder = ($rawConfig | ConvertFrom-Json).folder }
-        catch { Write-Warning 'config.json is invalid. Choose the screenshot folder again.' }
-    }
-    if ($folder -isnot [string] -or -not (Test-WritableFolder $folder)) {
-        $folder = Select-ScreenshotFolder
-    }
-    if (-not $folder) { exit 0 }
-
-    if (-not [IO.File]::Exists($captureExe)) {
-        Write-Warning 'capture.exe is missing. Exclusive fullscreen capture may fail.'
-    }
-    Write-Host "GeekScreen | F12: screenshot | Ctrl+C: stop"
-    Write-Host "Folder: $folder"
-    $wasPressed = $true
-    while ($true) {
-        $pressed = ([GeekScreenNative]::GetAsyncKeyState(0x7B) -band 0x8000) -ne 0
-        if ($pressed -and -not $wasPressed) {
-            try {
-                $saved = Save-Screenshot $folder
-                Write-Host "Saved: $saved"
-            }
-            catch {
-                Write-Warning "Screenshot failed: $($_.Exception.Message)"
-                if (-not (Test-WritableFolder $folder)) {
-                    $replacement = Select-ScreenshotFolder
-                    if ($replacement) {
-                        $folder = $replacement
-                        Write-Host "Folder: $folder. Press F12 for a new screenshot."
-                    }
-                }
-            }
+        try {
+            $rawConfig = Get-Content -LiteralPath $configPath -Raw
+            $folder = ($rawConfig | ConvertFrom-Json).folder
         }
-        $wasPressed = $pressed
-        Start-Sleep -Milliseconds 15
+        catch {
+            Write-Warning 'Файл настроек повреждён. Выберите папку заново.'
+        }
+    }
+    if ($folder -isnot [string] -or -not (Test-WritableFolder $folder)) { $folder = $null }
+
+    while ($true) {
+        $folder = Show-Menu $folder
+        if (-not $folder) { exit 0 }
+        Start-GeekScreen $folder
     }
 }
 catch {
     Write-Host "GeekScreen: $($_.Exception.Message)" -ForegroundColor Red
     exit 1
-}
-finally {
-    if ($ownsMutex) { $mutex.ReleaseMutex() }
-    if ($mutex) { $mutex.Dispose() }
 }
