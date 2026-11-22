@@ -119,7 +119,7 @@ function Show-Menu([string]$Folder) {
     while ($true) {
         Write-Host ''
         Write-Host '=========================================='
-        Write-Host ' GeekScreen - скриншоты в играх по ~'
+        Write-Host ' GeekScreen - скриншоты в играх по F11'
         Write-Host '=========================================='
         if ($Folder) { Write-Host " Папка: $Folder" }
         else { Write-Host ' Папка для скриншотов не выбрана.' }
@@ -180,34 +180,24 @@ function Start-GeekScreen([string]$Folder) {
         }
 
         Write-Host ''
-        Write-Host "Готово. ~ - скриншот, Ctrl+~ - сменить папку, Ctrl+C - остановить."
+        Write-Host "Готово. F11 - скриншот, Ctrl+C - остановить."
         Write-Host "Папка: $Folder"
 
         $wasPressed = $true
         while ($true) {
-            $pressed = ([GeekScreenNative]::GetAsyncKeyState(0xC0) -band 0x8000) -ne 0
+            $pressed = ([GeekScreenNative]::GetAsyncKeyState(0x7A) -band 0x8000) -ne 0
             if ($pressed -and -not $wasPressed) {
-                $ctrl = ([GeekScreenNative]::GetAsyncKeyState(0x11) -band 0x8000) -ne 0
-                if ($ctrl) {
-                    $selected = Read-ScreenshotFolder
-                    if ($selected) {
-                        $Folder = $selected
-                        Write-Host "Папка: $Folder"
-                    }
+                try {
+                    $saved = Save-Screenshot $Folder
+                    Write-Host "Сохранено: $saved"
                 }
-                else {
-                    try {
-                        $saved = Save-Screenshot $Folder
-                        Write-Host "Сохранено: $saved"
-                    }
-                    catch {
-                        Write-Warning "Не удалось сделать скриншот: $($_.Exception.Message)"
-                        if (-not (Test-WritableFolder $Folder)) {
-                            $selected = Read-ScreenshotFolder
-                            if ($selected) {
-                                $Folder = $selected
-                                Write-Host "Папка: $Folder. Нажмите ~ для нового скриншота."
-                            }
+                catch {
+                    Write-Warning "Не удалось сделать скриншот: $($_.Exception.Message)"
+                    if (-not (Test-WritableFolder $Folder)) {
+                        $selected = Read-ScreenshotFolder
+                        if ($selected) {
+                            $Folder = $selected
+                            Write-Host "Папка: $Folder. Нажмите F11 для нового скриншота."
                         }
                     }
                 }
