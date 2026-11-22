@@ -2,6 +2,7 @@
 $ErrorActionPreference = 'Stop'
 $configDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'GeekScreen'
 $configPath = Join-Path $configDir 'config.json'
+$captureExe = Join-Path $PSScriptRoot 'capture.exe'
 
 function Test-WritableFolder([string]$Path) {
     if ($Path -notmatch '^[A-Za-z]:\\' -or -not [IO.Directory]::Exists($Path)) {
@@ -47,26 +48,41 @@ function Select-ScreenshotFolder {
 }
 
 function Save-Screenshot([string]$Folder) {
-    $bounds = [Windows.Forms.Screen]::PrimaryScreen.Bounds
-    $bitmap = [Drawing.Bitmap]::new($bounds.Width, $bounds.Height)
-    try {
-        $graphics = [Drawing.Graphics]::FromImage($bitmap)
-        try { $graphics.CopyFromScreen($bounds.Location, [Drawing.Point]::Empty, $bounds.Size) }
-        finally { $graphics.Dispose() }
+    $window = [GeekScreenNative]::GetForegroundWindow()
+    $screen = [Windows.Forms.Screen]::PrimaryScreen
+    if ($window -ne [IntPtr]::Zero) {
+        $screen = [Windows.Forms.Screen]::FromHandle($window)
+    }
 
-        $name = '{0}_{1}' -f (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss-fff'), [guid]::NewGuid().ToString('N')
-        $temp = Join-Path $Folder "$name.tmp"
-        $target = Join-Path $Folder "$name.png"
-        try {
-            $bitmap.Save($temp, [Drawing.Imaging.ImageFormat]::Png)
-            [IO.File]::Move($temp, $target)
+    $name = '{0}_{1}' -f (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss-fff'), [guid]::NewGuid().ToString('N')
+    $temp = Join-Path $Folder "$name.tmp"
+    $target = Join-Path $Folder "$name.png"
+    try {
+        $captured = $false
+        if ([IO.File]::Exists($captureExe)) {
+            & $captureExe $screen.DeviceName $temp | Write-Host
+            $captured = $LASTEXITCODE -eq 0 -and [IO.File]::Exists($temp)
         }
-        finally {
-            if ([IO.File]::Exists($temp)) { [IO.File]::Delete($temp) }
+
+        if (-not $captured) {
+            [IO.File]::Delete($temp)
+            $bounds = $screen.Bounds
+            $bitmap = [Drawing.Bitmap]::new($bounds.Width, $bounds.Height)
+            try {
+                $graphics = [Drawing.Graphics]::FromImage($bitmap)
+                try { $graphics.CopyFromScreen($bounds.Location, [Drawing.Point]::Empty, $bounds.Size) }
+                finally { $graphics.Dispose() }
+                $bitmap.Save($temp, [Drawing.Imaging.ImageFormat]::Png)
+            }
+            finally { $bitmap.Dispose() }
         }
+
+        [IO.File]::Move($temp, $target)
         return $target
     }
-    finally { $bitmap.Dispose() }
+    finally {
+        if ([IO.File]::Exists($temp)) { [IO.File]::Delete($temp) }
+    }
 }
 
 $mutex = $null
@@ -92,6 +108,9 @@ public static class GeekScreenNative
 
     [DllImport("user32.dll")]
     public static extern bool SetProcessDPIAware();
+
+    [DllImport("user32.dll")]
+    public static extern System.IntPtr GetForegroundWindow();
 }
 '@
     [void][GeekScreenNative]::SetProcessDPIAware()
@@ -108,6 +127,9 @@ public static class GeekScreenNative
     }
     if (-not $folder) { exit 0 }
 
+    if (-not [IO.File]::Exists($captureExe)) {
+        Write-Warning 'capture.exe is missing. Exclusive fullscreen capture may fail.'
+    }
     Write-Host "GeekScreen | F12: screenshot | Ctrl+C: stop"
     Write-Host "Folder: $folder"
     $wasPressed = $true
