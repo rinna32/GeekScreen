@@ -1,12 +1,24 @@
-# GeekScreen
+<h1 align="center">GeekScreen</h1>
 
-GeekScreen делает скриншоты во время игры. Нажмите **F12**, и снимок сохранится на вашем компьютере в выбранной папке.
+<p align="center"><strong>Скриншоты в играх по F12</strong></p>
 
-**Для Windows x64.** Установка не нужна.
+<p align="center">Играйте как обычно. Нажмите F12, чтобы сохранить снимок в выбранную папку.</p>
+
+<p align="center">
+  <img alt="Платформа: Windows x64" src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square">
+  <img alt="Горячая клавиша: F12" src="https://img.shields.io/badge/%D0%9A%D0%BB%D0%B0%D0%B2%D0%B8%D1%88%D0%B0-F12-6741D9?style=flat-square">
+  <img alt="Формат: PNG" src="https://img.shields.io/badge/%D0%A4%D0%BE%D1%80%D0%BC%D0%B0%D1%82-PNG-198754?style=flat-square">
+</p>
+
+<p align="center">
+  <a href="https://github.com/rinna32/GeekScreen/releases/latest">
+    <img alt="Скачать GeekScreen для Windows" src="https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C-GeekScreen-238636?style=for-the-badge">
+  </a>
+</p>
 
 ## Как начать
 
-1. **[Скачайте GeekScreen](https://github.com/rinna32/GeekScreen/releases/latest).** На открывшейся странице найдите раздел **Assets** и нажмите **GeekScreen-windows-x64.zip**.
+1. **Нажмите «Скачать GeekScreen»** и выберите **`GeekScreen-windows-x64.zip`** в разделе **Assets**. Установка не нужна.
 2. **Распакуйте архив.** В папке «Загрузки» щёлкните по ZIP правой кнопкой мыши, выберите **«Извлечь всё…»**, затем нажмите **«Извлечь»**.
 3. **Запустите GeekScreen.** Откройте распакованную папку и дважды щёлкните по **`start.bat`**. В открывшемся окне выберите, куда сохранять скриншоты. Этот выбор запомнится.
 4. **Сверните окно GeekScreen, оставив его открытым.** Вернитесь в игру и нажмите **F12**. Снимок появится в выбранной папке как файл PNG.
