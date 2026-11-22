@@ -13,14 +13,20 @@ function Test-WritableFolder([string]$Path) {
     try {
         $drive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($Path))
         if ($drive.DriveType -eq [IO.DriveType]::Network) { return $false }
-
-        $probe = Join-Path $Path ('.geekscreen-' + [guid]::NewGuid().ToString('N'))
-        $stream = [IO.FileStream]::new($probe, 'CreateNew', 'Write', 'None', 4096, 'DeleteOnClose')
-        try { $stream.WriteByte(0) }
-        finally { $stream.Dispose() }
-        return $true
+        return [GeekScreenNative]::CanWriteDirectory($Path)
     }
     catch { return $false }
+}
+
+function Remove-StaleProbeFiles([string]$Folder) {
+    try {
+        foreach ($file in [IO.Directory]::EnumerateFiles($Folder, '.geekscreen-*')) {
+            if ([IO.Path]::GetFileName($file) -match '^\.geekscreen-[0-9a-fA-F]{32}$') {
+                try { [IO.File]::Delete($file) } catch { }
+            }
+        }
+    }
+    catch { }
 }
 
 function Confirm-Folder([string]$Path) {
@@ -58,6 +64,7 @@ function Read-ScreenshotFolder {
                 else { [IO.File]::Move($temp, $configPath) }
             }
             finally { [IO.File]::Delete($temp) }
+            Remove-StaleProbeFiles $selected
             return $selected
         }
     }
@@ -225,6 +232,31 @@ public static class GeekScreenNative
 
     [DllImport("user32.dll")]
     public static extern System.IntPtr GetForegroundWindow();
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern System.IntPtr CreateFileW(string lpFileName, uint dwDesiredAccess,
+        uint dwShareMode, System.IntPtr lpSecurityAttributes, uint dwCreationDisposition,
+        uint dwFlagsAndAttributes, System.IntPtr hTemplateFile);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(System.IntPtr hObject);
+
+    public static bool CanWriteDirectory(string path)
+    {
+        const uint FILE_ADD_FILE = 0x0002;
+        const uint FILE_SHARE_READ = 0x00000001;
+        const uint FILE_SHARE_WRITE = 0x00000002;
+        const uint FILE_SHARE_DELETE = 0x00000004;
+        const uint OPEN_EXISTING = 3;
+        const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+
+        System.IntPtr handle = CreateFileW(path, FILE_ADD_FILE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            System.IntPtr.Zero, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, System.IntPtr.Zero);
+        if (handle.ToInt64() == -1) { return false; }
+        CloseHandle(handle);
+        return true;
+    }
 }
 '@
     [void][GeekScreenNative]::SetProcessDPIAware()
@@ -241,6 +273,7 @@ public static class GeekScreenNative
         }
     }
     if ($folder -isnot [string] -or -not (Test-WritableFolder $folder)) { $folder = $null }
+    if ($folder) { Remove-StaleProbeFiles $folder }
 
     while ($true) {
         $folder = Show-Menu $folder
